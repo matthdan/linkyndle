@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
 import os
@@ -7,14 +7,12 @@ import datetime
 import locale
 from dateutil.relativedelta import relativedelta
 from influxdb import InfluxDBClient
-import linky
 import json
-
 import argparse
 import logging
 import pprint
 
-PFILE = "/.params"
+import linkyndle.linky
 
 # Sub to return format wanted by linky.py
 def _dayToStr(date):
@@ -22,16 +20,11 @@ def _dayToStr(date):
 
 # Open file with params for influxdb, enedis API and HC/HP time window
 def _openParams(pfile):
-    # Try to load .params then programs_dir/.params
-    if os.path.isfile(os.getcwd() + pfile):
-        p = os.getcwd() + pfile
-    elif os.path.isfile(os.path.dirname(os.path.realpath(__file__)) + pfile):
-        p = os.path.dirname(os.path.realpath(__file__)) + pfile
+    # Test if file exists and load params
+    if os.path.isfile(pfile):
+        p = pfile
     else:
-        if (os.getcwd() + pfile != os.path.dirname(os.path.realpath(__file__)) + pfile):
-            logging.error('file %s or %s not exist', os.path.realpath(os.getcwd() + pfile) , os.path.dirname(os.path.realpath(__file__)) + pfile)
-        else:
-            logging.error('file %s not exist', os.getcwd() + pfile )
+        logging.error('file %s not exist', pfile )
         sys.exit(1)
     try:
         f = open(p, 'r')
@@ -73,25 +66,31 @@ def _getStartDateInfluxDb(client):
 
 # Let's start here !
 
-if __name__ == "__main__":
-
+def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("-d",  "--days",    type=int, help="Number of days from now to download", default=1)
-    parser.add_argument("-l",  "--last",    action="store_true", help="Check from InfluxDb the number of missing days", default=False)
-    parser.add_argument("-v",  "--verbose", action="store_true", help="More verbose", default=False)
+    parser.add_argument("-c", "--configuration", dest="configuration_file", help="Configuration file path", default='.params')
+    parser.add_argument("-d", "--days",    type=int, help="Number of days from now to download", default=1)
+    parser.add_argument("-l", "--last",    action="store_true", help="Check from InfluxDb the number of missing days", default=False)
+    parser.add_argument("-v", "--verbose", action="store_true", help="More verbose", default=False)
     args = parser.parse_args()
 
     pp = pprint.PrettyPrinter(indent=4)
     logging.basicConfig(format='%(asctime)s %(message)s', level=logging.INFO)
 
-    params = _openParams(PFILE)
+    params = _openParams(os.path.abspath(args.configuration_file))
 
     # Try to log in InfluxDB Server
     try:
         logging.info("logging in InfluxDB Server Host %s...", params['influx']['host'])
-        client = InfluxDBClient(params['influx']['host'], params['influx']['port'],
-                    params['influx']['username'], params['influx']['password'],
-                    params['influx']['db'], ssl=params['influx']['ssl'], verify_ssl=params['influx']['verify_ssl'])
+        client = InfluxDBClient(
+            params['influx']['host'],
+            params['influx']['port'],
+            params['influx']['username'],
+            params['influx']['password'],
+            params['influx']['db'],
+            ssl=params['influx']['ssl'],
+            verify_ssl=params['influx']['verify_ssl']
+        )
         logging.info("logged in InfluxDB Server Host %s succesfully", params['influx']['host'])
     except:
         logging.error("unable to login on %s", params['influx']['host'])
@@ -181,3 +180,8 @@ if __name__ == "__main__":
         logging.info("unable to write data points to influxdb")
     else:
         logging.info("done")
+
+
+# for debur purpose only
+if __name__ == "__main__":
+    main()
