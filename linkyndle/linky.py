@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """Retrieves energy consumption data from your Enedis (ERDF) account."""
 
@@ -19,8 +19,8 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 import base64
-import requests
 import html
+import requests
 from fake_useragent import UserAgent
 
 LOGIN_BASE_URI = 'https://espace-client-connexion.enedis.fr'
@@ -45,19 +45,20 @@ class LinkyServiceException(Exception):
 
 
 def login(username, password):
-    """Logs the user into the Linky API.
-    """
+    """Logs the user into the Linky API. """
     session = requests.Session()
     session.headers.update({'User-agent': str(UserAgent().random)})
-    payload = {'IDToken1': username,
-               'IDToken2': password,
-               'SunQueryParamsString': base64.b64encode(b'realm=particuliers'),
-               'encoded': 'true',
-               'gx_charset': 'UTF-8'}
+    payload = {
+        'IDToken1': username,
+        'IDToken2': password,
+        'SunQueryParamsString': base64.b64encode(b'realm=particuliers'),
+        'encoded': 'true',
+        'gx_charset': 'UTF-8'
+    }
 
-    req = session.post(LOGIN_BASE_URI + API_ENDPOINT_LOGIN, data=payload, allow_redirects=False)
+    session.post(LOGIN_BASE_URI + API_ENDPOINT_LOGIN, data=payload, allow_redirects=False)
 
-    if not 'iPlanetDirectoryPro' in session.cookies:
+    if 'iPlanetDirectoryPro' not in session.cookies:
         raise LinkyLoginException("Login unsuccessful. Check your credentials.")
 
     return session
@@ -114,7 +115,7 @@ def _get_data(session, resource_id, start_date=None, end_date=None):
     if req.status_code == 200 and req.text is not None and "Conditions d'utilisation" in req.text:
         raise LinkyLoginException("You need to accept the latest Terms of Use. Please manually log into the website, "
                                   "then come back.")
-    
+
     res = req.json()
     if res['etat'] and res['etat']['valeur'] == 'erreur' and res['etat']['erreurText']:
         raise LinkyServiceException(html.unescape(res['etat']['erreurText']))

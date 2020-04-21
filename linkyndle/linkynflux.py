@@ -5,14 +5,14 @@ import os
 import sys
 import datetime
 import locale
-from dateutil.relativedelta import relativedelta
-from influxdb import InfluxDBClient
 import json
 import argparse
 import logging
 import pprint
+from dateutil.relativedelta import relativedelta
+from influxdb import InfluxDBClient
 
-import linkyndle.linky
+import linkyndle.linky as linky
 
 # Sub to return format wanted by linky.py
 def _dayToStr(date):
@@ -24,7 +24,7 @@ def _openParams(pfile):
     if os.path.isfile(pfile):
         p = pfile
     else:
-        logging.error('file %s not exist', pfile )
+        logging.error('file %s not exist', pfile)
         sys.exit(1)
     try:
         f = open(p, 'r')
@@ -46,12 +46,29 @@ def _getStartDate(today, daysNumber):
 
 # Get the midnight timestamp for startDate
 def _getStartTS(daysNumber):
-    date = (datetime.datetime.now().replace(hour=0,minute=0,second=0,microsecond=0) - relativedelta(days=daysNumber))
+    date = (
+        datetime.datetime.now().replace(
+            hour=0,
+            minute=0,
+            second=0,
+            microsecond=0
+            ) - relativedelta(days=daysNumber)
+        )
     return date.timestamp()
 
 # Get the timestamp for calculating if we are in HP / HC
-def _getDateTS(y,mo,d,h,m):
-    date = (datetime.datetime(year=y,month=mo,day=d,hour=h,minute=m,second=1,microsecond=0))
+def _getDateTS(y, mo, d, h, m):
+    date = (
+        datetime.datetime(
+            year=y,
+            month=mo,
+            day=d,
+            hour=h,
+            minute=m,
+            second=1,
+            microsecond=0
+        )
+    )
     return date.timestamp()
 
 # Get startDate with influxDB lastdate +1
@@ -61,7 +78,7 @@ def _getStartDateInfluxDb(client):
     db = client.query('SELECT "value" FROM "conso_elec" ORDER by time DESC LIMIT 1')
     for item in db.get_points():
         dateinfluxdb = item['time']
-    db_date = datetime.datetime.strptime(dateinfluxdb,'%Y-%m-%dT%H:%M:%SZ') + datetime.timedelta(days=1)
+    db_date = datetime.datetime.strptime(dateinfluxdb, '%Y-%m-%dT%H:%M:%SZ') + datetime.timedelta(days=1)
     return _dayToStr(db_date)
 
 # Let's start here !
@@ -69,8 +86,8 @@ def _getStartDateInfluxDb(client):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("-c", "--configuration", dest="configuration_file", help="Configuration file path", default='.params')
-    parser.add_argument("-d", "--days",    type=int, help="Number of days from now to download", default=1)
-    parser.add_argument("-l", "--last",    action="store_true", help="Check from InfluxDb the number of missing days", default=False)
+    parser.add_argument("-d", "--days", type=int, help="Number of days from now to download", default=1)
+    parser.add_argument("-l", "--last", action="store_true", help="Check from InfluxDb the number of missing days", default=False)
     parser.add_argument("-v", "--verbose", action="store_true", help="More verbose", default=False)
     args = parser.parse_args()
 
@@ -108,23 +125,26 @@ def main():
     # Calculate start/endDate and firstTS for data to request/parse
     if args.last:
         startDate = _getStartDateInfluxDb(client)
-        firstTS =  datetime.datetime.strptime(startDate, '%d/%m/%Y').timestamp()
-    else :
+        firstTS = datetime.datetime.strptime(startDate, '%d/%m/%Y').timestamp()
+    else:
         startDate = _getStartDate(datetime.date.today(), args.days)
-        firstTS =  _getStartTS(args.days)
+        firstTS = _getStartTS(args.days)
 
     endDate = _dayToStr(datetime.date.today())
     endTS = datetime.datetime.strptime(endDate, '%d/%m/%Y').timestamp()
     if firstTS >= endTS:
-      logging.error("No data available as startDate (%s) is not before endDate (%s)",str(startDate),str(endDate));
-      sys.exit(1)
+        logging.error(
+            "No data available as startDate (%s) is not before endDate (%s)",
+            str(startDate),
+            str(endDate))
+        sys.exit(1)
 
     # Try to get data from Enedis API
     try:
         logging.info("get Data from Enedis from {0} to {1}".format(startDate, endDate))
         # Get result from Enedis by 30m
         resEnedis = linky.get_data_per_hour(token, startDate, endDate)
-        if (args.verbose):
+        if args.verbose:
             pp.pprint(resEnedis)
     except:
         logging.error("unable to get data from enedis")
@@ -138,41 +158,60 @@ def main():
     jsonInflux = []
     for d in resEnedis['graphe']['data']:
         # Use the formula to create timestamp, 1 ordre = 30min
-            tres = firstTS + ((d['ordre']-1) *30*60)
-            t = datetime.datetime.fromtimestamp(tres)
-            creuses = 0
-            pleines = 0
-            normales = 0
-            if len(params['hc']) == 0:
-                normales = 1
-            else:
-                for hc in params['hc']:
-                    startTS = _getDateTS(t.year,t.month,t.day,hc['start']['h'],hc['start']['m'])
-                    endTS =   _getDateTS(t.year,t.month,t.day,hc['end']['h'],hc['end']['m'])
-                    if (startTS <= tres) and (endTS >= tres):
-                        logging.debug("Found HC, set flag for DT : ", t.strftime('%Y-%m-%dT%H:%M:%SZ'))
-                        creuses = 1
-                    else:
-                        pleines = 1
-                # Warning if ordre = 30min, then kWh should be divided by 2 !
-            logging.info(("found value ordre({0:3d}) : {1:7.2f} kWh at {2} (HC:{3}/HP:{4}/HN:{5})").format(d['ordre'], (d['valeur']/2), t.strftime('%Y-%m-%dT%H:%M:%SZ'),creuses,pleines,normales))
-            if d['valeur'] < 0 :
-                logging.error(("found negative value {0}, do not push it !").format(d['valeur']))
-            else:
-                jsonInflux.append({
-                           "measurement": "conso_elec",
-                           "tags": {
-                               "fetch_date" : endDate,
-                               "heures_creuses" : creuses,
-                               "heures_pleines" : pleines,
-                               "heures_normales" : normales,
-                           },
-                           "time": t.strftime('%Y-%m-%dT%H:%M:%SZ'),
-                           "fields": {
-                               "value": (d['valeur']*1000)/2,
-                               "max": resEnedis['graphe']['puissanceSouscrite']*1000,
-                           }
-                         })
+        tres = firstTS + ((d['ordre']-1) *30*60)
+        t = datetime.datetime.fromtimestamp(tres)
+        creuses = 0
+        pleines = 0
+        normales = 0
+        if len(params['hc']) == 0:
+            normales = 1
+        else:
+            for hc in params['hc']:
+                startTS = _getDateTS(
+                    t.year,
+                    t.month,
+                    t.day,
+                    hc['start']['h'],
+                    hc['start']['m'])
+                endTS = _getDateTS(
+                    t.year,
+                    t.month,
+                    t.day,
+                    hc['end']['h'],
+                    hc['end']['m'])
+                if (startTS <= tres) and (endTS >= tres):
+                    logging.debug("Found HC, set flag for DT : ", t.strftime('%Y-%m-%dT%H:%M:%SZ'))
+                    creuses = 1
+                else:
+                    pleines = 1
+            # Warning if ordre = 30min, then kWh should be divided by 2 !
+        logging.info(
+            ("found value ordre({0:3d}) : {1:7.2f} kWh at {2} (HC:{3}/HP:{4}/HN:{5})").format(
+                d['ordre'], 
+                (d['valeur']/2),
+                t.strftime('%Y-%m-%dT%H:%M:%SZ'),
+                creuses,
+                pleines,
+                normales)
+        )
+        if d['valeur'] < 0:
+            logging.error(("found negative value {0}, do not push it !").format(d['valeur']))
+        else:
+            jsonInflux.append(
+                {
+                    "measurement": "conso_elec",
+                    "tags": {
+                        "fetch_date" : endDate,
+                        "heures_creuses" : creuses,
+                        "heures_pleines" : pleines,
+                        "heures_normales" : normales,
+                    },
+                    "time": t.strftime('%Y-%m-%dT%H:%M:%SZ'),
+                    "fields": {
+                        "value": (d['valeur']*1000)/2,
+                        "max": resEnedis['graphe']['puissanceSouscrite']*1000,
+                    }
+                })
     logging.info("trying to write {0} points to influxDB".format(len(jsonInflux)))
     try:
         client.write_points(jsonInflux)
