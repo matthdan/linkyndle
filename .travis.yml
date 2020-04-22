@@ -1,0 +1,8 @@
+services:
+  - docker
+
+install:
+  - docker build -t matthdan/linkyndle .
+
+script:
+  - docker run -t -i --rm matthdan/linkyndle /usr/local/bin/linkyndle --help
